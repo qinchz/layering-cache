@@ -66,7 +66,7 @@
         <protostuff.version>1.6.0</protostuff.version>
 
         <spring.boot.version>2.1.1.RELEASE</spring.boot.version>
-
+        <skipTests>true</skipTests>
     </properties>
 
     <dependencyManagement>
@@ -198,6 +198,32 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <pluginRepositories>
+        <pluginRepository>
+            <id>manniujk-nexus</id>
+            <name>manniujk-nexus</name>
+            <url>http://10.241.65.86:8081/repository/maven-public/</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </pluginRepository>
+    </pluginRepositories>
+
+    <distributionManagement>
+        <!-- <!–用户名密码未定–>-->
+        <repository>
+            <id>manniujk-nexus-release</id>
+            <url>http://10.241.65.86:8081/repository/maven-releases/</url>
+        </repository>
+        <snapshotRepository>
+            <id>manniujk-nexus-snapshot</id>
+            <url>http://10.241.65.86:8081/repository/maven-snapshots/</url>
+        </snapshotRepository>
+    </distributionManagement>
 
     <profiles>
         <profile>
