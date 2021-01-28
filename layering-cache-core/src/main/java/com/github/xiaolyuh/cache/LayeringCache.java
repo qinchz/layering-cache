@@ -23,27 +23,27 @@ public class LayeringCache extends AbstractValueAdaptingCache {
     /**
      * redis 客户端
      */
-    private RedisClient redisClient;
+    private final RedisClient redisClient;
 
     /**
      * 一级缓存
      */
-    private AbstractValueAdaptingCache firstCache;
+    private final AbstractValueAdaptingCache firstCache;
 
     /**
      * 二级缓存
      */
-    private AbstractValueAdaptingCache secondCache;
+    private final AbstractValueAdaptingCache secondCache;
 
     /**
      * 多级缓存配置
      */
-    private LayeringCacheSetting layeringCacheSetting;
+    private final LayeringCacheSetting layeringCacheSetting;
 
     /**
      * 是否使用一级缓存， 默认true
      */
-    private boolean enableFirstCache = true;
+    private final boolean enableFirstCache;
 
     /**
      * @param redisClient          redisClient
@@ -84,56 +84,47 @@ public class LayeringCache extends AbstractValueAdaptingCache {
     }
 
     @Override
-    public Object get(String key) {
-        Object result = null;
+    public <T> T get(String key, Class<T> resultType) {
         if (enableFirstCache) {
-            result = firstCache.get(key);
-            logger.debug("查询一级缓存。 key={},返回值是:{}", key, JSON.toJSONString(result));
-        }
-        if (result == null) {
-            result = secondCache.get(key);
-            if (enableFirstCache) {
-                firstCache.putIfAbsent(key, result);
-                logger.debug("查询二级缓存,并将数据放到一级缓存。 key={},返回值是:{}", key, JSON.toJSONString(result));
+            Object result = firstCache.get(key, resultType);
+            if (logger.isDebugEnabled()) {
+                logger.debug("查询一级缓存。 key={},返回值是:{}", key, JSON.toJSONString(result));
             }
-        }
-        return fromStoreValue(result);
-    }
-
-    @Override
-    public <T> T get(String key, Class<T> type) {
-        if (enableFirstCache) {
-            Object result = firstCache.get(key, type);
-            logger.debug("查询一级缓存。 key={},返回值是:{}", key, JSON.toJSONString(result));
             if (result != null) {
                 return (T) fromStoreValue(result);
             }
         }
 
-        T result = secondCache.get(key, type);
+        T result = secondCache.get(key, resultType);
 
         if (enableFirstCache) {
-            firstCache.putIfAbsent(key, result);
+            firstCache.putIfAbsent(key, result, resultType);
         }
-        logger.debug("查询二级缓存,并将数据放到一级缓存。 key={},返回值是:{}", key, JSON.toJSONString(result));
+        if (logger.isDebugEnabled()) {
+            logger.debug("查询二级缓存,并将数据放到一级缓存。 key={},返回值是:{}", key, JSON.toJSONString(result));
+        }
         return result;
     }
 
     @Override
-    public <T> T get(String key, Callable<T> valueLoader) {
+    public <T> T get(String key, Class<T> resultType, Callable<T> valueLoader) {
         if (enableFirstCache) {
-            Object result = firstCache.get(key);
-            logger.debug("查询一级缓存。 key={},返回值是:{}", key, JSON.toJSONString(result));
+            T result = firstCache.get(key, resultType);
+            if (logger.isDebugEnabled()) {
+                logger.debug("查询一级缓存。 key={},返回值是:{}", key, JSON.toJSONString(result));
+            }
             if (result != null) {
                 return (T) fromStoreValue(result);
             }
         }
-        T result = secondCache.get(key, valueLoader);
+        T result = secondCache.get(key, resultType, valueLoader);
 
         if (enableFirstCache) {
-            firstCache.putIfAbsent(key, result);
+            firstCache.putIfAbsent(key, result, resultType);
         }
-        logger.debug("查询二级缓存,并将数据放到一级缓存。 key={},返回值是:{}", key, JSON.toJSONString(result));
+        if (logger.isDebugEnabled()) {
+            logger.debug("查询二级缓存,并将数据放到一级缓存。 key={},返回值是:{}", key, JSON.toJSONString(result));
+        }
         return result;
     }
 
@@ -147,8 +138,8 @@ public class LayeringCache extends AbstractValueAdaptingCache {
     }
 
     @Override
-    public Object putIfAbsent(String key, Object value) {
-        Object result = secondCache.putIfAbsent(key, value);
+    public <T> T putIfAbsent(String key, Object value, Class<T> resultType) {
+        T result = secondCache.putIfAbsent(key, value, resultType);
         // 删除一级缓存
         if (enableFirstCache) {
             deleteFirstCache(key, redisClient);

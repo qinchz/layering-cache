@@ -2,40 +2,57 @@ package com.github.xiaolyuh.redis.clinet;
 
 import com.github.xiaolyuh.listener.RedisMessageListener;
 import com.github.xiaolyuh.redis.serializer.RedisSerializer;
+import com.github.xiaolyuh.util.StringUtils;
 
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * redis 客户端
+ *
+ * @author olafwang
+ */
 public interface RedisClient {
 
-
     /**
-     * <p>
-     * 通过key获取储存在redis中的value
-     * </p>
+     * 获取RedisClient实例
      *
-     * @param key key
-     * @return 成功返回value 失败返回null
+     * @param redisProperties redis配置
+     * @return RedisClient
      */
-    Object get(String key);
+    static RedisClient getInstance(RedisProperties redisProperties) {
+        RedisClient redisClient;
+        if (StringUtils.isNotBlank(redisProperties.getCluster())) {
+            redisClient = new ClusterRedisClient(redisProperties);
+        } else {
+            redisClient = new SingleRedisClient(redisProperties);
+        }
+        return redisClient;
+    }
 
-    /**
-     *
-     * @param key
-     *
-     * @return
-     */
     /**
      * 通过key获取储存在redis中的value,自动转对象
      *
-     * @param key key
-     * @param t   返回值类型对应的Class对象
-     * @param <T> 返回值类型
+     * @param key        key
+     * @param resultType 返回值类型对应的Class对象
+     * @param <T>        返回值类型
      * @return 成功返回value 失败返回null
      * @author manddoxli
      */
-    <T> T get(String key, Class<T> t);
+    <T> T get(String key, Class<T> resultType);
+
+    /**
+     * 通过key获取储存在redis中的value,自动转对象
+     *
+     * @param key                  key
+     * @param resultType           返回值类型对应的Class对象
+     * @param valueRedisSerializer 指定序列化器
+     * @param <T>                  返回值类型
+     * @return 成功返回value 失败返回null
+     * @author manddoxli
+     */
+    <T> T get(String key, Class<T> resultType, RedisSerializer valueRedisSerializer);
 
     /**
      * <p>
@@ -61,9 +78,28 @@ public interface RedisClient {
      *
      * @param key   key
      * @param value value
+     * @param time  时间
+     * @param unit  时间单位
      * @return 成功 返回OK 失败返回 0
      */
     String set(String key, Object value, long time, TimeUnit unit);
+
+    /**
+     * <p>
+     * 向redis存入key和value,并释放连接资源
+     * </p>
+     * <p>
+     * 如果key已经存在 则覆盖
+     * </p>
+     *
+     * @param key                  key
+     * @param value                value
+     * @param time                 时间
+     * @param unit                 时间单位
+     * @param valueRedisSerializer 指定序列化器
+     * @return 成功 返回OK 失败返回 0
+     */
+    String set(String key, Object value, long time, TimeUnit unit, RedisSerializer valueRedisSerializer);
 
     /**
      * Set the string value as value of the key. The string can't be longer than 1073741824 bytes (1
@@ -146,22 +182,22 @@ public interface RedisClient {
      * 通过key向list头部添加字符串
      * </p>
      *
-     * @param key
-     * @param values
-     *            可以使一个string 也可以使string数组
+     * @param key                  key
+     * @param valueRedisSerializer 指定序列化器
+     * @param values               可以使一个string 也可以使string数组
      * @return 返回list的value个数
      */
-    Long lpush(String key, String... values) ;
+    Long lpush(String key, RedisSerializer valueRedisSerializer, String... values);
 
     /**
      * <p>
      * 通过key返回list的长度
      * </p>
      *
-     * @param key
-     * @return
+     * @param key key
+     * @return long
      */
-    Long llen(String key) ;
+    Long llen(String key);
 
     /**
      * <p>
@@ -171,12 +207,13 @@ public interface RedisClient {
      * 如果start 为 0 end 为 -1 则返回全部的list中的value
      * </p>
      *
-     * @param key
-     * @param start
-     * @param end
-     * @return
+     * @param key                  key
+     * @param start                起始位置
+     * @param end                  结束位置
+     * @param valueRedisSerializer 指定序列化器
+     * @return List
      */
-    List<String> lrange(String key, long start, long end);
+    List<String> lrange(String key, long start, long end, RedisSerializer valueRedisSerializer);
 
     /**
      * 执行Lua脚本
@@ -206,14 +243,18 @@ public interface RedisClient {
     void subscribe(RedisMessageListener messageListener, String... channel);
 
     /**
+     * key序列化方式
+     *
      * @return the key {@link RedisSerializer}.
      */
-    RedisSerializer<Object> getKeySerializer();
+    RedisSerializer getKeySerializer();
 
     /**
+     * value序列化方式
+     *
      * @return the value {@link RedisSerializer}.
      */
-    RedisSerializer<Object> getValueSerializer();
+    RedisSerializer getValueSerializer();
 
     /**
      * 设置key的序列化方式

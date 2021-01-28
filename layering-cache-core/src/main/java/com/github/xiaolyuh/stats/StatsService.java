@@ -6,6 +6,7 @@ import com.github.xiaolyuh.cache.LayeringCache;
 import com.github.xiaolyuh.manager.AbstractCacheManager;
 import com.github.xiaolyuh.manager.CacheManager;
 import com.github.xiaolyuh.redis.clinet.RedisClient;
+import com.github.xiaolyuh.redis.serializer.SerializationException;
 import com.github.xiaolyuh.setting.LayeringCacheSetting;
 import com.github.xiaolyuh.support.LayeringCacheRedisLock;
 import com.github.xiaolyuh.util.GlobalConfig;
@@ -15,7 +16,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.CollectionUtils;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -63,7 +71,12 @@ public class StatsService {
                 continue;
             }
 
-            CacheStatsInfo cacheStats = (CacheStatsInfo) cacheManager.getRedisClient().get(key);
+            CacheStatsInfo cacheStats = null;
+            try {
+                cacheStats = cacheManager.getRedisClient().get(key, CacheStatsInfo.class, GlobalConfig.GLOBAL_REDIS_SERIALIZER);
+            } catch (SerializationException e) {
+                cacheManager.getRedisClient().delete(key);
+            }
             if (!Objects.isNull(cacheStats)) {
                 statsList.add(cacheStats);
             }
@@ -98,7 +111,12 @@ public class StatsService {
                         LayeringCacheRedisLock lock = new LayeringCacheRedisLock(redisClient, redisKey, 60, 5000);
                         try {
                             if (lock.tryLock()) {
-                                CacheStatsInfo cacheStats = (CacheStatsInfo) redisClient.get(redisKey);
+                                CacheStatsInfo cacheStats = null;
+                                try {
+                                    cacheStats = redisClient.get(redisKey, CacheStatsInfo.class, GlobalConfig.GLOBAL_REDIS_SERIALIZER);
+                                } catch (SerializationException e) {
+                                    redisClient.delete(redisKey);
+                                }
                                 if (Objects.isNull(cacheStats)) {
                                     cacheStats = new CacheStatsInfo();
                                 }
@@ -134,7 +152,7 @@ public class StatsService {
                                 cacheStats.setSecondCacheMissCount(cacheStats.getSecondCacheMissCount() + secondCacheStats.getAndResetCachedMethodRequestCount());
 
                                 // 将缓存统计数据写到redis
-                                redisClient.set(redisKey, cacheStats, 24, TimeUnit.HOURS);
+                                redisClient.set(redisKey, cacheStats, 24, TimeUnit.HOURS, GlobalConfig.GLOBAL_REDIS_SERIALIZER);
                                 cacheStatsInfos.add(cacheStats);
                             }
                         } catch (Exception e) {
@@ -184,7 +202,12 @@ public class StatsService {
     public void resetCacheStat(String redisKey) {
         RedisClient redisClient = cacheManager.getRedisClient();
         try {
-            CacheStatsInfo cacheStats = (CacheStatsInfo) redisClient.get(redisKey);
+            CacheStatsInfo cacheStats = null;
+            try {
+                cacheStats = cacheManager.getRedisClient().get(redisKey, CacheStatsInfo.class, GlobalConfig.GLOBAL_REDIS_SERIALIZER);
+            } catch (SerializationException e) {
+                cacheManager.getRedisClient().delete(redisKey);
+            }
             if (Objects.nonNull(cacheStats)) {
                 cacheStats.clearStatsInfo();
                 // 将缓存统计数据写到redis

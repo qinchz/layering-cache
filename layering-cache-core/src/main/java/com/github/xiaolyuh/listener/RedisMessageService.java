@@ -68,7 +68,7 @@ public class RedisMessageService {
         if (oldOffset >= maxOffset) {
             return;
         }
-        List<String> messages = cacheManager.getRedisClient().lrange(GlobalConfig.getMessageRedisKey(), 0, maxOffset - oldOffset - 1);
+        List<String> messages = cacheManager.getRedisClient().lrange(GlobalConfig.getMessageRedisKey(), 0, maxOffset - oldOffset - 1, GlobalConfig.GLOBAL_REDIS_SERIALIZER);
         if (CollectionUtils.isEmpty(messages)) {
             return;
         }
@@ -77,8 +77,9 @@ public class RedisMessageService {
         RedisMessageService.updateLastPullTime();
 
         for (String message : messages) {
-            log.debug("redis 通过PULL方式处理本地缓，消息内容：{}", message);
-
+            if (log.isDebugEnabled()) {
+                log.debug("redis 通过PULL方式处理本地缓，消息内容：{}", message);
+            }
             if (StringUtils.isBlank(message)) {
                 continue;
             }

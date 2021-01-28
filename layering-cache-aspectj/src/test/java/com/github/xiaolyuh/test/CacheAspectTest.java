@@ -8,9 +8,16 @@ import com.github.xiaolyuh.domain.User;
 import com.github.xiaolyuh.manager.CacheManager;
 import com.github.xiaolyuh.manager.LayeringCacheManager;
 import com.github.xiaolyuh.redis.clinet.RedisClient;
+import com.github.xiaolyuh.redis.serializer.FastJsonRedisSerializer;
+import com.github.xiaolyuh.redis.serializer.JacksonRedisSerializer;
+import com.github.xiaolyuh.redis.serializer.JdkRedisSerializer;
+import com.github.xiaolyuh.redis.serializer.KryoRedisSerializer;
+import com.github.xiaolyuh.redis.serializer.ProtostuffRedisSerializer;
 import com.github.xiaolyuh.support.CacheMode;
 import com.github.xiaolyuh.util.GlobalConfig;
+import com.sun.management.OperatingSystemMXBean;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
@@ -19,8 +26,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 
+import java.lang.management.ManagementFactory;
 import java.math.BigDecimal;
-import java.util.*;
+import java.util.Collection;
+import java.util.Date;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+
 
 // SpringJUnit4ClassRunner再Junit环境下提供Spring TestContext Framework的功能。
 @RunWith(SpringJUnit4ClassRunner.class)
@@ -50,7 +64,7 @@ public class CacheAspectTest {
         user = testService.getUserById(userId);
         sleep(10);
 
-        Object result = redisClient.get("user:info:113:113");
+        Object result = redisClient.get("user:info:113:113", User.class);
         Assert.assertNull(result);
 
         user = testService.getUserById(userId);
@@ -69,7 +83,7 @@ public class CacheAspectTest {
         sleep(4);
         user = testService.getUserNoKey(userId, lastName);
         sleep(10);
-        Object result = redisClient.get("user:info:113:113");
+        Object result = redisClient.get("user:info:113:113", User.class);
         Assert.assertNull(result);
 
         user = testService.getUserNoKey(userId, lastName);
@@ -90,7 +104,7 @@ public class CacheAspectTest {
         sleep(4);
         user = testService.getUserObjectPram(user);
         sleep(11);
-        Object result = redisClient.get("user:info:113:113");
+        Object result = redisClient.get("user:info:113:113", User.class);
         Assert.assertNull(result);
 
         user = testService.getUserObjectPram(user);
@@ -112,7 +126,7 @@ public class CacheAspectTest {
         sleep(4);
         user = testService.getUser(user, user.getAge());
         sleep(11);
-        Object result = redisClient.get("user:info:114:114");
+        Object result = redisClient.get("user:info:114:114", User.class);
         Assert.assertNull(result);
 
         user = testService.getUser(user, user.getAge());
@@ -132,7 +146,7 @@ public class CacheAspectTest {
         sleep(4);
         user = testService.getNullUser(userId);
         sleep(11);
-        Object result = redisClient.get("user:info:115:115");
+        Object result = redisClient.get("user:info:115:115", User.class);
         Assert.assertNull(result);
 
         user = testService.getNullUser(userId);
@@ -141,17 +155,18 @@ public class CacheAspectTest {
 
     @Test
     public void testGetUserNoParam() {
+        User user1 = testService.getUserNoParam();
+        Assert.assertNotNull(user1);
         User user = testService.getUserNoParam();
         Assert.assertNotNull(user);
-        user = testService.getUserNoParam();
-        Assert.assertNotNull(user);
+        Assert.assertEquals(JSON.toJSONString(user1), JSON.toJSONString(user));
 
         sleep(5);
         testService.getUserNoParam();
         sleep(4);
         testService.getUserNoParam();
         sleep(11);
-        Object result = redisClient.get("user:info:{params:[]}");
+        Object result = redisClient.get("user:info:{params:[]}", User.class);
         Assert.assertNull(result);
 
         user = testService.getUserNoParam();
@@ -446,7 +461,7 @@ public class CacheAspectTest {
         sleep(3);
         testService.evictUser(userId);
         sleep(3);
-        Object result = redisClient.get("user:info:118:118");
+        Object result = redisClient.get("user:info:118:118", User.class);
         Assert.assertNull(result);
     }
 
@@ -458,13 +473,13 @@ public class CacheAspectTest {
         user.setBirthday(new Date(1593530584170L));
         testService.putUserNoKey(userId, user.getLastName(), user);
         String key = "user:info:params:[300118,[w,四川,~！@#%……&*（）——+：“？》:''\\>?《~!@#$%^&*()_+\\\\],address:addredd:成都,age:122,birthday:1593530584170,height:18.2,income:22.22,lastName:[w,四川,~！@#%……&*（）——+：“？》:''\\>?《~!@#$%^&*()_+\\\\],lastNameList:[W,成都],lastNameSet:[成都,W],name:name,userId:300118]";
-        User result = (User) redisClient.get(key);
+        User result = redisClient.get(key, User.class);
         Assert.assertNotNull(result);
         Assert.assertEquals(result.getUserId(), user.getUserId());
         sleep(3);
         testService.evictUserNoKey(userId, user.getLastName(), user);
         sleep(3);
-        Object result2 = redisClient.get(key);
+        Object result2 = redisClient.get(key, User.class);
         Assert.assertNull(result2);
     }
 
@@ -476,8 +491,8 @@ public class CacheAspectTest {
         sleep(5);
         testService.evictAllUser();
         sleep(3);
-        Object result1 = redisClient.get("user:info:119");
-        Object result2 = redisClient.get("user:info:121");
+        Object result1 = redisClient.get("user:info:119", User.class);
+        Object result2 = redisClient.get("user:info:121", User.class);
         Assert.assertNull(result1);
         Assert.assertNull(result2);
     }
@@ -492,8 +507,8 @@ public class CacheAspectTest {
         Assert.assertTrue(((LayeringCacheManager) cacheManager).getCacheContainer().size() == 0);
         testService.evictUser(119_119);
         sleep(2);
-        Object result1 = redisClient.get("user:info:119119");
-        Object result2 = redisClient.get("user:info:119121");
+        Object result1 = redisClient.get("user:info:119119", User.class);
+        Object result2 = redisClient.get("user:info:119121", User.class);
         Assert.assertNull(result1);
         Assert.assertNotNull(result2);
 
@@ -501,8 +516,8 @@ public class CacheAspectTest {
         Assert.assertTrue(((LayeringCacheManager) cacheManager).getCacheContainer().size() == 0);
         testService.evictAllUser();
         sleep(2);
-        result2 = redisClient.get("user:info:119121");
-        Object result3 = redisClient.get("user:info:119122");
+        result2 = redisClient.get("user:info:119121", User.class);
+        Object result3 = redisClient.get("user:info:119122", User.class);
         Assert.assertNull(result2);
         Assert.assertNull(result3);
     }
@@ -514,13 +529,13 @@ public class CacheAspectTest {
         Collection<Cache> caches = cacheManager.getCache("user:info:118:3-0-2");
         String key = "118118";
         for (Cache cache : caches) {
-            Object result = cache.get(key);
+            User result = cache.get(key, User.class);
             Assert.assertNotNull(result);
 
-            result = ((LayeringCache) cache).getFirstCache().get(key);
+            result = ((LayeringCache) cache).getFirstCache().get(key, User.class);
             Assert.assertNull(result);
 
-            result = ((LayeringCache) cache).getSecondCache().get(key);
+            result = ((LayeringCache) cache).getSecondCache().get(key, User.class);
             Assert.assertNotNull(result);
         }
     }
@@ -532,13 +547,13 @@ public class CacheAspectTest {
         Collection<Cache> caches = cacheManager.getCache("user:info:3-0-2");
         String key = "118118";
         for (Cache cache : caches) {
-            Object result = cache.get(key);
+            User result = cache.get(key, User.class);
             Assert.assertNotNull(result);
 
-            result = ((LayeringCache) cache).getFirstCache().get(key);
+            result = ((LayeringCache) cache).getFirstCache().get(key, User.class);
             Assert.assertNull(result);
 
-            result = ((LayeringCache) cache).getSecondCache().get(key);
+            result = ((LayeringCache) cache).getSecondCache().get(key, User.class);
             Assert.assertNotNull(result);
         }
     }
@@ -561,7 +576,6 @@ public class CacheAspectTest {
         sleep(1);
         Long llen2 = redisClient.llen(GlobalConfig.getMessageRedisKey());
         Assert.assertEquals(llen1, llen2);
-
 
         logger.info("============================================================================");
 
@@ -607,6 +621,122 @@ public class CacheAspectTest {
         Assert.assertEquals(user2.getAge(), user.getAge());
         Long llen3 = redisClient.llen(GlobalConfig.getMessageRedisKey());
         Assert.assertEquals((long) llen1, llen3 - 1);
+    }
+
+    /**
+     * 测试刷新二级缓存，同步更新一级缓存
+     */
+    @Test
+    public void testSerializer() {
+        User user = new User();
+        KryoRedisSerializer kryoRedisSerializer = new KryoRedisSerializer();
+        FastJsonRedisSerializer fastJsonRedisSerializer = new FastJsonRedisSerializer();
+        JacksonRedisSerializer jacksonRedisSerializer = new JacksonRedisSerializer();
+        JdkRedisSerializer jdkRedisSerializer = new JdkRedisSerializer();
+        ProtostuffRedisSerializer protostuffRedisSerializer = new ProtostuffRedisSerializer();
+
+
+        int count = 1_000;
+        long start = System.currentTimeMillis();
+        for (int i = 0; i < count; i++) {
+            redisClient.set("Serializer:KryoRedisSerializer", user, 10, TimeUnit.MINUTES, kryoRedisSerializer);
+        }
+        long kryoSet = System.currentTimeMillis() - start;
+
+        start = System.currentTimeMillis();
+        for (int i = 0; i < count; i++) {
+            redisClient.set("Serializer:fastJsonRedisSerializer", user, 10, TimeUnit.MINUTES, fastJsonRedisSerializer);
+        }
+        long fastJsonSet = System.currentTimeMillis() - start;
+
+        start = System.currentTimeMillis();
+        for (int i = 0; i < count; i++) {
+            redisClient.set("Serializer:jacksonRedisSerializer", user, 10, TimeUnit.MINUTES, jacksonRedisSerializer);
+        }
+        long jacksonSet = System.currentTimeMillis() - start;
+        start = System.currentTimeMillis();
+        for (int i = 0; i < count; i++) {
+            redisClient.set("Serializer:jdkRedisSerializer", user, 10, TimeUnit.MINUTES, jdkRedisSerializer);
+        }
+        long jdkSet = System.currentTimeMillis() - start;
+
+        start = System.currentTimeMillis();
+        for (int i = 0; i < count; i++) {
+            redisClient.set("Serializer:protostuffRedisSerializer", user, 10, TimeUnit.MINUTES, protostuffRedisSerializer);
+        }
+        long protostufSet = System.currentTimeMillis() - start;
+
+
+        start = System.currentTimeMillis();
+        for (int i = 0; i < count; i++) {
+            redisClient.get("Serializer:KryoRedisSerializer", User.class, kryoRedisSerializer);
+        }
+        long kryoGet = System.currentTimeMillis() - start;
+
+        start = System.currentTimeMillis();
+        for (int i = 0; i < count; i++) {
+            redisClient.get("Serializer:fastJsonRedisSerializer", User.class, fastJsonRedisSerializer);
+        }
+        long fastJsonGet = System.currentTimeMillis() - start;
+
+        start = System.currentTimeMillis();
+        for (int i = 0; i < count; i++) {
+            redisClient.get("Serializer:jacksonRedisSerializer", User.class, jacksonRedisSerializer);
+        }
+        long jacksonGet = System.currentTimeMillis() - start;
+
+        start = System.currentTimeMillis();
+        for (int i = 0; i < count; i++) {
+            redisClient.get("Serializer:jdkRedisSerializer", User.class, jdkRedisSerializer);
+        }
+        long jdkGet = System.currentTimeMillis() - start;
+
+        start = System.currentTimeMillis();
+        for (int i = 0; i < count; i++) {
+            redisClient.get("Serializer:protostuffRedisSerializer", User.class, protostuffRedisSerializer);
+        }
+        long protostufGet = System.currentTimeMillis() - start;
+
+
+        System.out.println("KryoRedisSerializer:" + kryoRedisSerializer.serialize(user).length + " b");
+        System.out.println("fastJsonRedisSerializer:" + fastJsonRedisSerializer.serialize(user).length + " b");
+        System.out.println("jacksonRedisSerializer:" + jacksonRedisSerializer.serialize(user).length + " b");
+        System.out.println("jdkRedisSerializer:" + jdkRedisSerializer.serialize(user).length + " b");
+        System.out.println("protostuffRedisSerializer:" + protostuffRedisSerializer.serialize(user).length + " b");
+        System.out.println();
+
+        System.out.println("KryoRedisSerializer serialize:" + kryoSet + " ms");
+        System.out.println("fastJsonRedisSerializer serialize:" + fastJsonSet + " ms");
+        System.out.println("jacksonRedisSerializer serialize:" + jacksonSet + " ms");
+        System.out.println("jdkRedisSerializer serialize:" + jdkSet + " ms");
+        System.out.println("protostuffRedisSerializer serialize:" + protostufSet + " ms");
+        System.out.println();
+
+        System.out.println("KryoRedisSerializer deserialize:" + kryoGet + " ms");
+        System.out.println("fastJsonRedisSerializer deserialize:" + fastJsonGet + " ms");
+        System.out.println("jacksonRedisSerializer deserialize:" + jacksonGet + " ms");
+        System.out.println("jdkRedisSerializer deserialize:" + jdkGet + " ms");
+        System.out.println("protostuffRedisSerializer deserialize:" + protostufGet + " ms");
+    }
+
+    private String systemInfo() {
+        OperatingSystemMXBean osmxb = (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+
+        //获取CPU
+        double cpuLoad = osmxb.getSystemLoadAverage();
+        int percentCpuLoad = (int) (cpuLoad * 100);
+        //获取内存
+        double totalvirtualMemory = osmxb.getSystemCpuLoad();
+        double freePhysicalMemorySize = osmxb.getFreePhysicalMemorySize();
+        double value = freePhysicalMemorySize / totalvirtualMemory;
+        int percentMemoryLoad = (int) ((1 - value) * 100);
+
+        return String.format("CPU = %s,Mem = %s", percentCpuLoad, percentMemoryLoad);
+    }
+
+    @BeforeClass
+    public static void beforeClass() {
+        System.setProperty("java.util.logging.config.file", ClassLoader.getSystemResource("log4j.properties").getPath());
     }
 
     private void sleep(int time) {

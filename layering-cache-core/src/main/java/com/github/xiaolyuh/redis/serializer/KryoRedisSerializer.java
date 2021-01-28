@@ -4,37 +4,28 @@ import com.alibaba.fastjson.JSON;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
-import com.github.xiaolyuh.support.NullValue;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
+import java.util.Arrays;
 
 /**
- * @param <T> T
+ * kryo 序列化方式
+ *
  * @author yuhao.wang
  */
-public class KryoRedisSerializer<T> implements RedisSerializer<T> {
-    Logger logger = LoggerFactory.getLogger(KryoRedisSerializer.class);
-    private static final ThreadLocal<Kryo> kryos = ThreadLocal.withInitial(Kryo::new);
-
-    private Class<T> clazz;
-
-    public KryoRedisSerializer(Class<T> clazz) {
-        super();
-        this.clazz = clazz;
-    }
+public class KryoRedisSerializer extends AbstractRedisSerializer {
+    private static final ThreadLocal<Kryo> KRYO = ThreadLocal.withInitial(Kryo::new);
 
     @Override
-    public byte[] serialize(T t) throws SerializationException {
+    public <T> byte[] serialize(T t) throws SerializationException {
         if (t == null) {
             return SerializationUtils.EMPTY_ARRAY;
         }
 
-        Kryo kryo = kryos.get();
+        Kryo kryo = KRYO.get();
         // 设置成false 序列化速度更快，但是遇到循环应用序列化器会报栈内存溢出
         kryo.setReferences(false);
-        kryo.register(clazz);
+        kryo.register(t.getClass());
 
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
              Output output = new Output(baos)) {
@@ -44,32 +35,32 @@ public class KryoRedisSerializer<T> implements RedisSerializer<T> {
         } catch (Exception e) {
             throw new SerializationException(String.format("KryoRedisSerializer 序列化异常: %s, 【%s】", e.getMessage(), JSON.toJSONString(t)), e);
         } finally {
-            kryos.remove();
+            KRYO.remove();
         }
     }
 
     @Override
-    public T deserialize(byte[] bytes) throws SerializationException {
+    public <T> T deserialize(byte[] bytes, Class<T> resultType) throws SerializationException {
         if (SerializationUtils.isEmpty(bytes)) {
             return null;
         }
 
-        Kryo kryo = kryos.get();
+        if (Arrays.equals(getNullValueBytes(), bytes)) {
+            return null;
+        }
+
+        Kryo kryo = KRYO.get();
         // 设置成false 序列化速度更快，但是遇到循环应用序列化器会报栈内存溢出
         kryo.setReferences(false);
-        kryo.register(clazz);
+        kryo.register(resultType);
 
         try (Input input = new Input(bytes)) {
-
             Object result = kryo.readClassAndObject(input);
-            if (result instanceof NullValue) {
-                return null;
-            }
             return (T) result;
         } catch (Exception e) {
             throw new SerializationException(String.format("KryoRedisSerializer 反序列化异常: %s, 【%s】", e.getMessage(), JSON.toJSONString(bytes)), e);
         } finally {
-            kryos.remove();
+            KRYO.remove();
         }
     }
 }

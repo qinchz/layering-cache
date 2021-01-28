@@ -1,4 +1,4 @@
-package com.github.xiaolyuh.domain;
+package com.github.xiaolyuh.demo.entity;
 
 import java.io.Serializable;
 import java.math.BigDecimal;

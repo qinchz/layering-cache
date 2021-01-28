@@ -5,7 +5,7 @@
 
     <groupId>com.github.xiaolyuh</groupId>
     <artifactId>layering-cache-web</artifactId>
-    <version>3.0.0</version>
+    <version>3.2.0</version>
     <packaging>jar</packaging>
 
     <name>layering-cache-web</name>
@@ -78,9 +78,21 @@
         </dependency>
 
         <dependency>
+            <groupId>io.protostuff</groupId>
+            <artifactId>protostuff-core</artifactId>
+            <version>1.7.2</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.protostuff</groupId>
+            <artifactId>protostuff-runtime</artifactId>
+            <version>1.7.2</version>
+        </dependency>
+
+        <dependency>
             <groupId>com.github.xiaolyuh</groupId>
             <artifactId>layering-cache-core</artifactId>
-            <version>3.1.5</version>
+            <version>3.3.3</version>
         </dependency>
     </dependencies>
 

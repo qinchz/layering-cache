@@ -2,12 +2,17 @@ package com.github.xiaolyuh.redis.clinet;
 
 import com.alibaba.fastjson.JSON;
 import com.github.xiaolyuh.listener.RedisMessageListener;
-import com.github.xiaolyuh.redis.serializer.KryoRedisSerializer;
+import com.github.xiaolyuh.redis.serializer.JdkRedisSerializer;
 import com.github.xiaolyuh.redis.serializer.RedisSerializer;
 import com.github.xiaolyuh.redis.serializer.SerializationException;
 import com.github.xiaolyuh.redis.serializer.StringRedisSerializer;
 import com.github.xiaolyuh.util.StringUtils;
-import io.lettuce.core.*;
+import io.lettuce.core.KeyScanCursor;
+import io.lettuce.core.RedisURI;
+import io.lettuce.core.ScanArgs;
+import io.lettuce.core.ScanCursor;
+import io.lettuce.core.ScriptOutputType;
+import io.lettuce.core.SetArgs;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.sync.RedisCommands;
 import io.lettuce.core.codec.ByteArrayCodec;
@@ -16,8 +21,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.CollectionUtils;
 
-import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -36,7 +45,7 @@ public class SingleRedisClient implements RedisClient {
     /**
      * 默认value序列化方式
      */
-    private RedisSerializer valueSerializer = new KryoRedisSerializer(Object.class);
+    private RedisSerializer valueSerializer = new JdkRedisSerializer();
 
     private io.lettuce.core.RedisClient client;
 
@@ -60,10 +69,10 @@ public class SingleRedisClient implements RedisClient {
     }
 
     @Override
-    public Object get(String key) {
+    public <T> T get(String key, Class<T> resultType) {
         try {
             RedisCommands<byte[], byte[]> sync = connection.sync();
-            return getValueSerializer().deserialize(sync.get(getKeySerializer().serialize(key)));
+            return getValueSerializer().deserialize(sync.get(getKeySerializer().serialize(key)), resultType);
         } catch (SerializationException e) {
             throw e;
         } catch (Exception e) {
@@ -72,8 +81,15 @@ public class SingleRedisClient implements RedisClient {
     }
 
     @Override
-    public <T> T get(String key, Class<T> t) {
-        return (T) get(key);
+    public <T> T get(String key, Class<T> resultType, RedisSerializer valueRedisSerializer) {
+        try {
+            RedisCommands<byte[], byte[]> sync = connection.sync();
+            return valueRedisSerializer.deserialize(sync.get(getKeySerializer().serialize(key)), resultType);
+        } catch (SerializationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RedisClientException(e.getMessage(), e);
+        }
     }
 
     @Override
@@ -95,6 +111,18 @@ public class SingleRedisClient implements RedisClient {
         try {
             RedisCommands<byte[], byte[]> sync = connection.sync();
             return sync.setex(getKeySerializer().serialize(key), unit.toSeconds(time), getValueSerializer().serialize(value));
+        } catch (SerializationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RedisClientException(e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public String set(String key, Object value, long time, TimeUnit unit, RedisSerializer valueRedisSerializer) {
+        try {
+            RedisCommands<byte[], byte[]> sync = connection.sync();
+            return sync.setex(getKeySerializer().serialize(key), unit.toSeconds(time), valueRedisSerializer.serialize(value));
         } catch (SerializationException e) {
             throw e;
         } catch (Exception e) {
@@ -180,15 +208,15 @@ public class SingleRedisClient implements RedisClient {
     }
 
     @Override
-    public Long lpush(String key, String... values) {
+    public Long lpush(String key, RedisSerializer valueRedisSerializer, String... values) {
+        if (Objects.isNull(values) || values.length == 0) {
+            return 0L;
+        }
         try {
-            if (Objects.isNull(values) || values.length == 0) {
-                return 0L;
-            }
             RedisCommands<byte[], byte[]> sync = connection.sync();
             final byte[][] bvalues = new byte[values.length][];
             for (int i = 0; i < values.length; i++) {
-                bvalues[i] = getValueSerializer().serialize(values[i]);
+                bvalues[i] = valueRedisSerializer.serialize(values[i]);
             }
 
             return sync.lpush(getKeySerializer().serialize(key), bvalues);
@@ -212,7 +240,7 @@ public class SingleRedisClient implements RedisClient {
     }
 
     @Override
-    public List<String> lrange(String key, long start, long end) {
+    public List<String> lrange(String key, long start, long end, RedisSerializer valueRedisSerializer) {
         try {
             RedisCommands<byte[], byte[]> sync = connection.sync();
             List<String> list = new ArrayList<>();
@@ -221,7 +249,7 @@ public class SingleRedisClient implements RedisClient {
                 return list;
             }
             for (byte[] value : values) {
-                list.add((String) getValueSerializer().deserialize(value));
+                list.add(valueRedisSerializer.deserialize(value, String.class));
             }
             return list;
         } catch (SerializationException e) {
@@ -240,7 +268,7 @@ public class SingleRedisClient implements RedisClient {
             ScanCursor cursor = ScanCursor.INITIAL;
             do {
                 KeyScanCursor<byte[]> scanCursor = sync.scan(cursor, ScanArgs.Builder.limit(10000).match(pattern));
-                scanCursor.getKeys().forEach(key -> keys.add((String) getKeySerializer().deserialize(key)));
+                scanCursor.getKeys().forEach(key -> keys.add(getKeySerializer().deserialize(key, String.class)));
                 finished = scanCursor.isFinished();
                 cursor = ScanCursor.of(scanCursor.getCursor());
             } while (!finished);
@@ -294,12 +322,12 @@ public class SingleRedisClient implements RedisClient {
     }
 
     @Override
-    public RedisSerializer<Object> getKeySerializer() {
+    public RedisSerializer getKeySerializer() {
         return keySerializer;
     }
 
     @Override
-    public RedisSerializer<Object> getValueSerializer() {
+    public RedisSerializer getValueSerializer() {
         return valueSerializer;
     }
 

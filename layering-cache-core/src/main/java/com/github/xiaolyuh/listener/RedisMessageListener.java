@@ -1,15 +1,10 @@
 package com.github.xiaolyuh.listener;
 
-import com.alibaba.fastjson.JSON;
-import com.github.xiaolyuh.cache.Cache;
-import com.github.xiaolyuh.cache.LayeringCache;
 import com.github.xiaolyuh.manager.AbstractCacheManager;
 import com.github.xiaolyuh.util.BeanFactory;
 import io.lettuce.core.pubsub.RedisPubSubListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.Collection;
 
 /**
  * redis消息的订阅者
@@ -35,7 +30,9 @@ public class RedisMessageListener implements RedisPubSubListener<String, String>
     @Override
     public void message(String channel, String message) {
         try {
-            log.debug("redis消息订阅者接收到频道【{}】发布的消息。消息内容：{}", channel, message);
+            if (log.isDebugEnabled()) {
+                log.debug("redis消息订阅者接收到频道【{}】发布的消息。消息内容：{}", channel, message);
+            }
 
             // 更新最后一次处理拉消息的时间
             RedisMessageService.updateLastPushTime();

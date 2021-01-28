@@ -34,28 +34,28 @@ public class RedisCache extends AbstractValueAdaptingCache {
     /**
      * 等待线程容器
      */
-    private AwaitThreadContainer container = new AwaitThreadContainer();
+    private final AwaitThreadContainer container = new AwaitThreadContainer();
 
     /**
      * redis 客户端
      */
-    private RedisClient redisClient;
+    private final RedisClient redisClient;
 
     /**
      * 缓存有效时间,毫秒
      */
-    private long expiration;
+    private final long expiration;
 
     /**
      * 缓存主动在失效前强制刷新缓存的时间
      * 单位：毫秒
      */
-    private long preloadTime = 0;
+    private long preloadTime;
 
     /**
      * 是否强制刷新（执行被缓存的方法），默认是false
      */
-    private boolean forceRefresh = false;
+    private boolean forceRefresh;
 
     /**
      * 是否使用缓存名称作为 redis key 前缀
@@ -121,48 +121,56 @@ public class RedisCache extends AbstractValueAdaptingCache {
     }
 
     @Override
-    public Object get(String key) {
+    public <T> T get(String key, Class<T> resultType) {
         if (isStats()) {
             getCacheStats().addCacheRequestCount(1);
         }
 
         RedisCacheKey redisCacheKey = getRedisCacheKey(key);
-        logger.debug("redis缓存 key= {} 查询redis缓存", redisCacheKey.getKey());
-        return redisClient.get(redisCacheKey.getKey());
+        if (logger.isDebugEnabled()) {
+            logger.debug("redis缓存 key= {} 查询redis缓存", redisCacheKey.getKey());
+        }
+        return redisClient.get(redisCacheKey.getKey(), resultType);
     }
 
     @Override
-    public <T> T get(String key, Callable<T> valueLoader) {
+    public <T> T get(String key, Class<T> resultType, Callable<T> valueLoader) {
         if (isStats()) {
             getCacheStats().addCacheRequestCount(1);
         }
 
         RedisCacheKey redisCacheKey = getRedisCacheKey(key);
-        logger.debug("redis缓存 key= {} 查询redis缓存如果没有命中，从数据库获取数据", redisCacheKey.getKey());
+        if (logger.isDebugEnabled()) {
+            logger.debug("redis缓存 key= {} 查询redis缓存如果没有命中，从数据库获取数据", redisCacheKey.getKey());
+        }
         // 先获取缓存，如果有直接返回
-        Object result = redisClient.get(redisCacheKey.getKey());
+        T result = redisClient.get(redisCacheKey.getKey(), resultType);
         if (result != null || redisClient.hasKey(redisCacheKey.getKey())) {
             // 刷新缓存
-            refreshCache(redisCacheKey, valueLoader, result);
+            refreshCache(redisCacheKey, resultType, valueLoader, result);
             return (T) fromStoreValue(result);
         }
         // 执行缓存方法
-        return executeCacheMethod(redisCacheKey, valueLoader);
+        return executeCacheMethod(redisCacheKey, resultType, valueLoader);
     }
 
     @Override
     public void put(String key, Object value) {
         RedisCacheKey redisCacheKey = getRedisCacheKey(key);
-        logger.debug("redis缓存 key= {} put缓存，缓存值：{}", redisCacheKey.getKey(), JSON.toJSONString(value));
+        if (logger.isDebugEnabled()) {
+            logger.debug("redis缓存 key= {} put缓存，缓存值：{}", redisCacheKey.getKey(), JSON.toJSONString(value));
+        }
         putValue(redisCacheKey, value);
     }
 
     @Override
-    public Object putIfAbsent(String key, Object value) {
-        logger.debug("redis缓存 key= {} putIfAbsent缓存，缓存值：{}", getRedisCacheKey(key).getKey(), JSON.toJSONString(value));
-        Object reult = get(key);
-        if (reult != null) {
-            return reult;
+    public <T> T putIfAbsent(String key, Object value, Class<T> resultType) {
+        if (logger.isDebugEnabled()) {
+            logger.debug("redis缓存 key= {} putIfAbsent缓存，缓存值：{}", getRedisCacheKey(key).getKey(), JSON.toJSONString(value));
+        }
+        T result = get(key, resultType);
+        if (result != null) {
+            return result;
         }
         put(key, value);
         return null;
@@ -203,27 +211,33 @@ public class RedisCache extends AbstractValueAdaptingCache {
     /**
      * 获取锁的线程等待500ms,如果500ms都没返回，则直接释放锁放下一个请求进来，防止第一个线程异常挂掉
      */
-    private <T> T executeCacheMethod(RedisCacheKey redisCacheKey, Callable<T> valueLoader) {
+    private <T> T executeCacheMethod(RedisCacheKey redisCacheKey, Class<T> resultType, Callable<T> valueLoader) {
         LayeringCacheRedisLock redisLock = new LayeringCacheRedisLock(redisClient, redisCacheKey.getKey() + "_sync_lock", 1);
         while (true) {
             try {
                 // 先取缓存，如果有直接返回，没有再去做拿锁操作
-                Object result = redisClient.get(redisCacheKey.getKey());
+                T result = redisClient.get(redisCacheKey.getKey(), resultType);
                 if (result != null) {
-                    logger.debug("redis缓存 key= {} 获取到锁后查询查询缓存命中，不需要执行被缓存的方法", redisCacheKey.getKey());
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("redis缓存 key= {} 获取到锁后查询查询缓存命中，不需要执行被缓存的方法", redisCacheKey.getKey());
+                    }
                     return (T) fromStoreValue(result);
                 }
 
                 // 获取分布式锁去后台查询数据
                 if (redisLock.lock()) {
                     T t = loaderAndPutValue(redisCacheKey, valueLoader, true);
-                    logger.debug("redis缓存 key= {} 从数据库获取数据完毕，唤醒所有等待线程", redisCacheKey.getKey());
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("redis缓存 key= {} 从数据库获取数据完毕，唤醒所有等待线程", redisCacheKey.getKey());
+                    }
                     // 唤醒线程
                     container.signalAll(redisCacheKey.getKey());
                     return t;
                 }
                 // 线程等待
-                logger.debug("redis缓存 key= {} 从数据库获取数据未获取到锁，进入等待状态，等待{}毫秒", redisCacheKey.getKey(), WAIT_TIME);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("redis缓存 key= {} 从数据库获取数据未获取到锁，进入等待状态，等待{}毫秒", redisCacheKey.getKey(), WAIT_TIME);
+                }
                 container.await(redisCacheKey.getKey(), WAIT_TIME);
             } catch (Exception e) {
                 container.signalAll(redisCacheKey.getKey());
@@ -246,7 +260,9 @@ public class RedisCache extends AbstractValueAdaptingCache {
         try {
             // 加载数据
             Object result = putValue(key, valueLoader.call());
-            logger.debug("redis缓存 key={} 执行被缓存的方法，并将其放入缓存, 耗时：{}。数据:{}", key.getKey(), System.currentTimeMillis() - start, JSON.toJSONString(result));
+            if (logger.isDebugEnabled()) {
+                logger.debug("redis缓存 key={} 执行被缓存的方法，并将其放入缓存, 耗时：{}。数据:{}", key.getKey(), System.currentTimeMillis() - start, JSON.toJSONString(result));
+            }
 
             if (isLoad && isStats()) {
                 getCacheStats().addCachedMethodRequestTime(System.currentTimeMillis() - start);
@@ -284,7 +300,7 @@ public class RedisCache extends AbstractValueAdaptingCache {
     /**
      * 刷新缓存数据
      */
-    private <T> void refreshCache(RedisCacheKey redisCacheKey, Callable<T> valueLoader, Object result) {
+    private <T> void refreshCache(RedisCacheKey redisCacheKey, Class<T> resultType, Callable<T> valueLoader, Object result) {
         long preload = preloadTime;
         // 允许缓存NULL值，则自动刷新时间也要除以倍数
         boolean flag = isAllowNullValues() && (result instanceof NullValue || result == null);
@@ -294,11 +310,15 @@ public class RedisCache extends AbstractValueAdaptingCache {
         if (isRefresh(redisCacheKey, preload)) {
             // 判断是否需要强制刷新在开启刷新线程
             if (!getForceRefresh()) {
-                logger.debug("redis缓存 key={} 软刷新缓存模式", redisCacheKey.getKey());
+                if (logger.isDebugEnabled()) {
+                    logger.debug("redis缓存 key={} 软刷新缓存模式", redisCacheKey.getKey());
+                }
                 softRefresh(redisCacheKey);
             } else {
-                logger.debug("redis缓存 key={} 强刷新缓存模式", redisCacheKey.getKey());
-                forceRefresh(redisCacheKey, valueLoader, preload);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("redis缓存 key={} 强刷新缓存模式", redisCacheKey.getKey());
+                }
+                forceRefresh(redisCacheKey, resultType, valueLoader, preload);
             }
         }
     }
@@ -329,7 +349,7 @@ public class RedisCache extends AbstractValueAdaptingCache {
      * @param valueLoader   数据加载器
      * @param preloadTime   缓存预加载时间
      */
-    private <T> void forceRefresh(RedisCacheKey redisCacheKey, Callable<T> valueLoader, long preloadTime) {
+    private <T> void forceRefresh(RedisCacheKey redisCacheKey, Class<T> resultType, Callable<T> valueLoader, long preloadTime) {
         // 尽量少的去开启线程，因为线程池是有限的
         ThreadTaskUtils.run(() -> {
             // 加一个分布式锁，只放一个请求去刷新缓存
@@ -339,7 +359,7 @@ public class RedisCache extends AbstractValueAdaptingCache {
                     // 获取锁之后再判断一下过期时间，看是否需要加载数据
                     if (isRefresh(redisCacheKey, preloadTime)) {
                         // 获取缓存中老数据
-                        Object oldDate = redisClient.get(redisCacheKey.getKey());
+                        Object oldDate = redisClient.get(redisCacheKey.getKey(), resultType);
                         // 加载数据并放到缓存
                         Object newDate = loaderAndPutValue(redisCacheKey, valueLoader, false);
                         // 比较新老数据是否相等，如果不想等就删除一级缓存
